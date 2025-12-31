@@ -1,0 +1,207 @@
+#!/bin/bash
+
+# Photo management tool
+# Usage: photostool <directory> [--duplicates|--xmp] [--apply]
+
+show_usage() {
+    cat << EOF
+Usage: photostool <directory> [--duplicates|--xmp] [--apply]
+
+Arguments:
+  <directory>    Directory to scan
+
+Options:
+  --duplicates   Find duplicate files (default if no option specified)
+  --xmp          Rename XMP sidecar files to match their image files
+  --apply        Apply changes - only works with --duplicates or --xmp
+
+Examples:
+  photostool .                    # List duplicates in current directory
+  photostool /path/to/dir        # List duplicates in specified directory
+  photostool . --xmp             # List XMP files that need renaming
+  photostool . --xmp --apply     # Rename XMP files to match their image files
+EOF
+    exit 1
+}
+
+# Check if no arguments provided
+if [ $# -eq 0 ]; then
+    show_usage
+fi
+
+TARGET_DIR=""
+DUPLICATES_MODE=0
+APPLY_MODE=0
+XMP_MODE=0
+
+# Parse arguments
+for arg in "$@"; do
+    case "$arg" in
+        --duplicates) DUPLICATES_MODE=1 ;;
+        --apply) APPLY_MODE=1 ;;
+        --xmp) XMP_MODE=1 ;;
+        --*) ;;
+        *)
+            if [ -z "$TARGET_DIR" ]; then
+                TARGET_DIR="$arg"
+            fi
+            ;;
+    esac
+done
+
+# Validate directory was provided
+if [ -z "$TARGET_DIR" ]; then
+    show_usage
+fi
+
+# Default to duplicates mode if no mode specified
+if [ $DUPLICATES_MODE -eq 0 ] && [ $XMP_MODE -eq 0 ]; then
+    DUPLICATES_MODE=1
+fi
+
+# Validate that --apply only works with --xmp and/or --duplicates
+if [ $APPLY_MODE -eq 1 ]; then
+    if [ $XMP_MODE -eq 0 ] && [ $DUPLICATES_MODE -eq 0 ]; then
+        echo "Error: --apply can only be used with --xmp and/or --duplicates flags"
+        exit 1
+    fi
+fi
+
+if [ ! -d "$TARGET_DIR" ]; then
+    echo "Error: Directory '$TARGET_DIR' not found"
+    exit 1
+fi
+
+FOUND_CHANGES=0
+
+if [ $XMP_MODE -eq 1 ]; then
+    # XMP mode: Rename XMP files to match their image files
+    # Rules:
+    # 1. If "a (1).ARW.xmp" exists and "a.arw.xmp" doesn't exist -> rename to "a.arw.xmp"
+    # 2. If "a.arw.xmp" exists and "a (1).ARW" exists -> rename "a.arw.xmp" to "a (1).ARW.xmp"
+    
+    while IFS= read -r xmp_file; do
+        dir=$(dirname "$xmp_file")
+        xmp_base=$(basename "$xmp_file")
+        
+        # Remove .xmp extension to get the image filename pattern
+        image_base="${xmp_base%.xmp}"
+        
+        # Extract base name (without " (1)" or "(1)")
+        if [[ "$image_base" =~ " (1)" ]]; then
+            clean_base="${image_base% (1)*}"
+        else
+            clean_base="${image_base%(1)*}"
+        fi
+        
+        # Look for corresponding image file
+        found_image=""
+        
+        # First, try exact match (same case)
+        if [ -f "$dir/$image_base" ]; then
+            found_image="$dir/$image_base"
+        fi
+        
+        # If not found, try case-insensitive search for files with same base name
+        if [ -z "$found_image" ]; then
+            # Extract the part before the last extension (the "a" from "a.arw")
+            base_name_only="${clean_base%.*}"
+            
+            # Find any image file with same base name (case-insensitive), excluding "(1)" versions
+            while IFS= read -r candidate; do
+                if [ -f "$candidate" ] && [[ "$candidate" != *" (1)"* ]] && [[ "$candidate" != *"(1)"* ]]; then
+                    found_image="$candidate"
+                    break
+                fi
+            done < <(find "$dir" -maxdepth 1 -type f -iname "${base_name_only}.*" ! -name "*.xmp" 2>/dev/null)
+        fi
+        
+        # If not found (e.g., when looking at "a.arw.xmp" but only "a (1).ARW" exists), look for "(1)" versions
+        if [ -z "$found_image" ]; then
+            base_name_only="${clean_base%.*}"
+            
+            # Find image file with "(1)" in the name
+            while IFS= read -r candidate; do
+                if [ -f "$candidate" ]; then
+                    found_image="$candidate"
+                    break
+                fi
+            done < <(find "$dir" -maxdepth 1 -type f -iname "${base_name_only} (1).*" ! -name "*.xmp" 2>/dev/null)
+        fi
+        
+        # If we found a corresponding image file, determine the correct XMP name
+        if [ -n "$found_image" ]; then
+            correct_xmp="$dir/$(basename "$found_image").xmp"
+            
+            # If the XMP file is not already named correctly, it needs renaming
+            if [ "$xmp_file" != "$correct_xmp" ]; then
+                FOUND_CHANGES=$((FOUND_CHANGES + 1))
+                echo "$xmp_file -> $(basename "$correct_xmp")"
+                
+                if [ $APPLY_MODE -eq 1 ]; then
+                    mv "$xmp_file" "$correct_xmp"
+                    echo "  Renamed: $xmp_file to $correct_xmp"
+                fi
+            fi
+        fi
+    done < <(find "$TARGET_DIR" -type f -name "*.xmp")
+else
+    # Duplicates mode: Find files with "(1)" in the name
+    while IFS= read -r file; do
+        base_name=$(basename "$file")
+        dir=$(dirname "$file")
+        
+        # Non-XMP mode: remove " (1)" from the name (handles "file (1).txt" -> "file.txt")
+        # Extract extension
+        ext="${base_name##*.}"
+        # Remove " (1)" or "(1)" and re-add extension
+        original_name="${base_name% (1)*}"
+        if [[ "$original_name" == "$base_name" ]]; then
+            original_name="${base_name%(1)*}"
+        fi
+        # Add extension back if it was stripped
+        if [[ "$original_name" != *".${ext}" ]]; then
+            original_name="${original_name}.${ext}"
+        fi
+        
+        original_file="$dir/$original_name"
+        
+        # Check if there's a corresponding file without "(1)"
+        if [[ "$base_name" != "$original_name" ]] && [ -f "$original_file" ]; then
+            # Non-XMP mode: Compare file sizes
+            size1=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file" 2>/dev/null)
+            size2=$(stat -f%z "$original_file" 2>/dev/null || stat -c%s "$original_file" 2>/dev/null)
+            
+            if [ "$size1" = "$size2" ]; then
+                FOUND_CHANGES=$((FOUND_CHANGES + 1))
+                echo "$original_file <-> $file (Size: $size1 bytes)"
+                
+                if [ $APPLY_MODE -eq 1 ]; then
+                    rm -f "$file"
+                    echo "  Removed: $file"
+                fi
+            fi
+        fi
+    done < <(find "$TARGET_DIR" -type f \( -name "*\(1\)*" -o -name "* \(1\) *" \))
+fi
+
+if [ $FOUND_CHANGES -eq 0 ]; then
+    if [ $XMP_MODE -eq 1 ]; then
+        echo "No XMP files need renaming."
+    else
+        echo "No duplicate files found."
+    fi
+else
+    echo ""
+    if [ $XMP_MODE -eq 1 ]; then
+        echo "Found $FOUND_CHANGES XMP file(s) to rename."
+        if [ $APPLY_MODE -eq 1 ]; then
+            echo "Renamed all XMP files to match their image files."
+        fi
+    else
+        echo "Found $FOUND_CHANGES duplicate pair(s)."
+        if [ $APPLY_MODE -eq 1 ]; then
+            echo "Removed all duplicates."
+        fi
+    fi
+fi
