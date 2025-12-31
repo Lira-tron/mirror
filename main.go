@@ -94,6 +94,7 @@ func main() {
 	dstRoot := filepath.Clean(args[1])
 
 	// First pass: calculate total size
+	fmt.Fprintf(os.Stderr, "Calculating total size...\n")
 	filepath.WalkDir(srcRoot, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
@@ -105,6 +106,7 @@ func main() {
 		}
 		return nil
 	})
+	fmt.Fprintf(os.Stderr, "Total size: %.2f MB\n", float64(overallSize)/1024/1024)
 
 	// Second pass: copy files
 	err := filepath.WalkDir(srcRoot, func(path string, d fs.DirEntry, err error) error {
