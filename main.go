@@ -189,18 +189,7 @@ func moveFile(src, dst, relPath string) error {
 		if pct > 100 {
 			pct = 100
 		}
-
-		// Create animated progress bar with moving effect
-		barWidth := 40
-		filledWidth := int(pct * int64(barWidth) / 100)
-
-		// Animation frames for marching ants effect
-		frames := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
-		animFrame := frames[int(time.Now().Unix()*4)%len(frames)]
-
-		bar := "[" + strings.Repeat("█", filledWidth) + animFrame + strings.Repeat(" ", barWidth-filledWidth-1) + "]"
-
-		fmt.Fprintf(os.Stderr, "\rOverall: %d%% %s\n", pct, bar)
+		fmt.Fprintf(os.Stderr, "\rOverall: %d%%\n", pct)
 	}
 
 	return nil
@@ -247,18 +236,7 @@ func copyFile(src, dst, relPath string) error {
 		if pct > 100 {
 			pct = 100
 		}
-
-		// Create animated progress bar with moving effect
-		barWidth := 40
-		filledWidth := int(pct * int64(barWidth) / 100)
-
-		// Animation frames for marching ants effect
-		frames := []string{"▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"}
-		animFrame := frames[int(time.Now().Unix()*4)%len(frames)]
-
-		bar := "[" + strings.Repeat("█", filledWidth) + animFrame + strings.Repeat(" ", barWidth-filledWidth-1) + "]"
-
-		fmt.Fprintf(os.Stderr, "\rOverall: %d%% %s\n", pct, bar)
+		fmt.Fprintf(os.Stderr, "\rOverall: %d%%\n", pct)
 	}
 
 	return err
