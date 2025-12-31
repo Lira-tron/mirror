@@ -1,4 +1,4 @@
-module mirror
+module lyphotos
 
 go 1.25.1
 
