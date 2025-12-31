@@ -200,7 +200,7 @@ func moveFile(src, dst, relPath string) error {
 
 		bar := "[" + strings.Repeat("█", filledWidth) + animFrame + strings.Repeat(" ", barWidth-filledWidth-1) + "]"
 
-		fmt.Fprintf(os.Stderr, "\rOverall: %d%% %s", pct, bar)
+		fmt.Fprintf(os.Stderr, "\rOverall: %d%% %s\n", pct, bar)
 	}
 
 	return nil
